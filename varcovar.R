@@ -11,21 +11,117 @@ is.rooted(tr)
 is.ultrametric(tr)
 vcvPhylo(tr, anc.nodes = T)
 
+
+tr <- rcoal(10)
 # Single trait
-C = vcv(tr)
+C = vcv(tr) # Phylogenetic variance-covariance matrix
 R = 0.1 # variance of trait
-V = kronecker(R, C)
-a = rep(0, 4) # expected mean of trait
+V = kronecker(R, C) #
+a = rep(0, length(tr$tip.label)) # expected mean of trait
 sim_single <- mvrnorm(n = 100, mu = a, Sigma = V)
-par(mfrow = c(3, 1), mar = c(2, 2, 1, 1))
+par(mfrow = c(2, 2), mar = rep(4, 4))
 plot(tr)
 nodelabels()
-plot(sim_single[, 1:2])
-plot(sim_single[, 3:4])
+colnames(sim_single) <- tr$tip.label
+plot(sim_single[, 1:2], xlab = tr$tip.label[1], ylab = tr$tip.label[2])
+plot(sim_single[, 3:4], xlab = tr$tip.label[3], ylab = tr$tip.label[4])
+plot(sim_single[, c(1, 3)], xlab = tr$tip.label[1], ylab = tr$tip.label[3])
 
-nodelabels()
-plot(sim_single[, 1:2])
-plot(sim_single[, 3:4])
+
+# Fit using ACE with default maximum likelihood
+ace(sim_single[1, ], tr, method = 'ML')
+# Fit using ACE with REML
+ace(sim_single[1, ], tr, method = 'REML')
+# Fit using PIC
+ace(sim_single[1, ], tr, method = 'pic')
+# Fit using GLS
+co <- corBrownian(1, tr)
+ace(sim_single[1, ], tr, method = 'GLS', corStruct = co)
+
+fitContinuous(tr, sim_single[1, ])
+fitContinuous(tr, sim_single[1, ], model = 'lambda')
+
+
+#####################################
+#### Simulate larger tree for BEAST
+library(TreeSim)
+tr <- sim.bdsky.stt(n = 100, lambdasky = 2, deathsky = 1, sampprobsky = 0.1,
+                    timesky = 0)[[1]]
+par(mfrow = c(1, 1))
+ntimes <- round(allnode.times(tr, tipsonly = T), 2)
+tr$tip.label <- paste0(tr$tip.label, '_', ntimes)
+plot(tr)
+max(allnode.times(tr))
+
+# Single trait
+C <- vcvPhylo(tr, anc.nodes = T)
+R <- 0.1
+a <- rep(0, (length(tr$tip.label) + tr$Nnode - 1))
+V <- kronecker(R, C)
+colnames(V) <- colnames(C)
+rownames(V) <- colnames(V)
+#
+sim_trait <- round(mvrnorm(n = 1, mu = a, Sigma = V), 3)
+tr$tip.label <- paste0(tr$tip.label, '_', sim_trait[1:length(tr$tip.label)])
+names(sim_trait)[1:length(tr$tip.label)] <- tr$tip.label
+
+
+names(sim_trait)[1:length(tr$tip.label)] <- 1:length(tr$tip.label)
+sim_trait
+
+
+trait_data <- matrix(NA, length(tr$edge.length), 5)
+colnames(trait_data) <- c('branch', 'time', 'i0', 'i1', 'distance')
+for(i in 1:nrow(trait_data)){
+    if(!tr$edge[i, 1] == (length(tr$tip.label)+1)){
+        from <- sim_trait[as.numeric(names(sim_trait)) == tr$edge[i, 1]]
+    }else{
+        from <- 0
+    }
+    to <- sim_trait[as.numeric(names(sim_trait)) == tr$edge[i, 2]]
+    distance <- abs(from-to)
+    trait_data[i, ] <- c(i, tr$edge.length[i], from, to, distance)
+}
+trait_data <- as.data.frame(trait_data)
+
+#Diffusion rate
+sum(trait_data$distance) / sum(trait_data$time)
+#= 0.453221
+
+plot(tr, show.tip.label = F)
+nodelabels(text = sim_trait[(length(tr$tip.label)+1):length(sim_trait)],
+           node = as.numeric(names(sim_trait)[(length(tr$tip.label)+1):length(sim_trait)] ))
+tiplabels(sim_trait[1:length(tr$tip.label)])
+edgelabels(round(trait_data$distance, 2))
+
+plot(range(trait_data[, 3:4]), c(1, nrow(trait_data)), type = 'n')
+for(i in 1:nrow(trait_data)){
+    lines(c(trait_data[i, 3], trait_data[i, 4]), rep(i, 2))
+}
+
+phylogram <- tr
+phylogram$edge.length <- phylogram$edge.length * 1E-2
+aln <- as.DNAbin(simSeq(phylogram, l = 5000))
+length(seg.sites(aln))
+write.dna(aln, file = 'test_continuous_sigma0.1_D0.25.fasta', format = 'fasta', nbcol = -1, colsep = '')
+
+
+trait <- as.numeric(gsub('.+_', '', tr$tip.label))
+names(trait) <- tr$tip.label
+fit_reml <- ace(trait, tr, method = 'REML')
+
+# To do: write function to calculate diffusion coefficient from ACE output
+
+
+
+######################
+######################
+######################
+######################
+######################
+######################
+######################
+
 
 # Two traits with covariance
 C <- vcv.phylo(tr)
@@ -135,6 +231,7 @@ tr$tip.label <- paste0(tr$tip.label, '@', ntimes, '@')
 plot(tr)
 max(allnode.times(tr))
 #
+
 par(mfrow = c(1, 1))
 plot(tr, show.tip.label = F)
 nts <- round(intnode.times(tr), 2)
@@ -174,6 +271,7 @@ phylogram$edge.length <- phylogram$edge.length * 1E-2
 aln <- as.DNAbin(simSeq(phylogram, l = 5000))
 length(seg.sites(aln))
 write.dna(aln, file = 'test_phylogeo_3.fasta', format = 'fasta', nbcol = -1, colsep = '')
+
 
 #hist(geo.data.matrix[, 'distance'] / geo.data.matrix[, 'edge_length'])
 
